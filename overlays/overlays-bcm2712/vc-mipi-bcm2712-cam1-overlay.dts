@@ -1,5 +1,5 @@
 //
-// Definitions for cam 0 for RaspberryPi 5
+// Definitions for cam 1 for RaspberryPi 5
 //
 // Copyright (C) 2024 - Florian Schmid, Vision Components GmbH
 //
@@ -10,7 +10,7 @@
 /dts-v1/;
 /plugin/;
 
-/ {    
+/ {
 	fragment@0 {
 		target = <&csi1>;
 		__overlay__ {
@@ -19,26 +19,27 @@
 			port {
 				csi1_ep: endpoint {
 					remote-endpoint = <&vc_mipi_cam1_ep>;
-					data-lanes = <1>;
+					data-lanes = <1 2 3 4>;
 				};
 			};
 		};
-	};	
+	};
 	fragment@1 {
 		target = <&i2c_csi_dsi>;
 		__overlay__ {
-
 			status = "okay";
- 			#address-cells = <1>;
-            #size-cells = <0>;
-			vc_mipi_cam1: camera0 {
+
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			vc_mipi_cam1: camera1 {
 				compatible = "vc,vc_mipi_camera";
 				reg = <0x1a>;
 				status = "okay";				
 				port {
 					vc_mipi_cam1_ep: endpoint {
 						remote-endpoint = <&csi1_ep>;
-						data-lanes = <1>;
+						data-lanes = <1 2 3 4>;
 
 					};
 				};
@@ -60,7 +61,7 @@
 		};
 	};
 	fragment@4 {
-    	target-path = "/cam1_reg";
+    	target = <&cam1_reg>;
     	__overlay__ {
        		status = "disabled";
     	};
@@ -70,7 +71,10 @@
 		__overlay__ {
 			cam1_trigger_gpio: cam1_trigger_gpio {
 				function = "gpio";
-				pins = "gpio26";
+				/* Pin 17 (IO0/CAM_GPIO) of the CAM1 connector, wired to RP1 GPIO46 on
+				 * Raspberry Pi 5 Model B. On CM5 this line is shared with cam0_reg's
+				 * GPIO34 (no separate CAM1 pin), so cam1 has no independent trigger pin there. */
+				pins = "gpio46";
 				drive-strength = <0x0c>;   /* optional */
 				bias-disable;              /* no pull */
 				/* slew-rate = <0x01>; */  /* optional */
@@ -80,11 +84,10 @@
 	fragment@1001 {
 		target = <&i2c_csi_dsi>;
 		__dormant__ {
-			camera0 {
+			camera1 {
 				port {
 						endpoint {
 							data-lanes = <1>;
-
 						};
 					};
 				};
@@ -93,7 +96,7 @@
 	fragment@1002 {
 		target = <&i2c_csi_dsi>;
 		__dormant__ {
-			camera0 {
+			camera1 {
 				port {
 						endpoint {
 							data-lanes = <1 2>;
@@ -106,7 +109,7 @@
 	fragment@1004 {
 		target = <&i2c_csi_dsi>;
 		__dormant__ {
-			camera0 {
+			camera1 {
 				port {
 						endpoint {
 							data-lanes = <1 2 3 4>;
