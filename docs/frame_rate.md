@@ -25,3 +25,5 @@ even though the frame rate is set to a value.
 This means that a long exposure time will reduce the maximum frame rate: 
 An exposure time of 100 msec / 0.1 sec means a maximum frame rate of 1/(0.1 sec) = 10 Hz.
 
+> [!NOTE]
+> For all trigger modes except streaming and self-trigger, it is recommended that the value is set to 0.
