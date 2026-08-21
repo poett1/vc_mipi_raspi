@@ -4,6 +4,11 @@
 DEBIAN_CODENAME := $(shell . /etc/os-release 2>/dev/null && echo $$VERSION_CODENAME)
 ENABLE_LIBAV := $(if $(filter bookworm,$(DEBIAN_CODENAME)),disabled,enabled)
 
+# Ninja defaults to nproc+2 parallel compile jobs, which OOMs C++-heavy builds
+# (libcamera, rpicam-apps) on low-RAM boards. Budget ~1.5GB/job, capped at nproc.
+# Override on the command line if needed, e.g. `make installRPICamApps MESON_JOBS=1`.
+MESON_JOBS ?= $(shell nproc=$$(nproc); mem_jobs=$$(awk '/MemTotal/{v=int($$2/1500000); print (v<1?1:v)}' /proc/meminfo); [ $$mem_jobs -lt $$nproc ] && echo $$mem_jobs || echo $$nproc)
+
 all: installDeps installV4l2Utils installLibPisp installGstreamer installLibcamera  installRPICamApps
 all-rpi4: installDeps installV4l2Utils installGstreamer installLibcamera-rpi4  installRPICamApps
 installDeps:
@@ -48,7 +53,7 @@ installLibPisp:
 		git clone https://github.com/raspberrypi/libpisp.git && \
 		cd libpisp && \
 		meson setup build --buildtype=release --prefix=/usr && \
-		meson compile -C build && \
+		meson compile -C build -j$(MESON_JOBS) && \
 		sudo ninja -C build install; \
 	fi
 	sudo rm -rf /usr/local/include/libpisp \
@@ -74,7 +79,7 @@ installLibcamera:
 	  -Dqcam=disabled \
 	  -Ddocumentation=disabled \
 	  -Dpycamera=enabled && \
-	meson compile -C build && \
+	meson compile -C build -j$(MESON_JOBS) && \
 	sudo ninja -C build install
 installLibcamera-rpi4:
 	sudo apt-get remove -y libcamera* || true
@@ -92,7 +97,7 @@ installLibcamera-rpi4:
 	  -Dqcam=disabled \
 	  -Ddocumentation=disabled \
 	  -Dpycamera=enabled && \
-	meson compile -C build && \
+	meson compile -C build -j$(MESON_JOBS) && \
 	sudo ninja -C build install
 installGstreamer:
 	sudo apt install -y gstreamer1.0-tools gstreamer1.0-plugins-base libgstreamer-plugins-base1.0-dev \
@@ -105,7 +110,7 @@ installRPICamApps:
 	git fetch --tags && \
 	git checkout v1.11.1 && \
 	meson setup build --buildtype=release -Denable_hailo=disabled -Denable_opencv=enabled -Denable_egl=enabled -Denable_libav=$(ENABLE_LIBAV) && \
-	meson compile -C build && \
+	meson compile -C build -j$(MESON_JOBS) && \
 	sudo meson install -C build
 	@printf "%s\n" \
 	 "/usr/local/lib/aarch64-linux-gnu" \
@@ -121,8 +126,8 @@ installRPICamAppsHailo:
 	git fetch --tags && \
 	git checkout v1.5.2 && \
 	meson setup build  --buildtype=release -Denable_hailo=enabled -Denable_opencv=enabled -Ddownload_hailo_models=true -Denable_egl=enabled -Denable_imx500=false && \
-	meson compile -C build && \
-	sudo meson install -C build 
+	meson compile -C build -j$(MESON_JOBS) && \
+	sudo meson install -C build
 	@printf "%s\n" \
 	 "/usr/local/lib/aarch64-linux-gnu" \
 	 "/usr/lib/aarch64-linux-gnu" \

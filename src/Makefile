@@ -75,27 +75,38 @@ $(error Kernel headers not found. Please install them with 'sudo apt-get install
 endif
 
 build:
-	EXTRA_CFLAGS=$(EXTRA_CFLAGS) $(MAKE) -C $(KERNEL_HEADERS) M=$(PWD) modules
+	EXTRA_CFLAGS=$(EXTRA_CFLAGS) $(MAKE) -C $(KERNEL_HEADERS) M=$(CURDIR) modules
 
 all: build
 
 clean:
-	$(MAKE) -C $(KERNEL_HEADERS) M=$(PWD) clean
+	$(MAKE) -C $(KERNEL_HEADERS) M=$(CURDIR) clean
 	-rm -f $(SENSORDRIVERS)
 	-rm -f $(DEVICETREES)
 
 reload:
 	@LOGGING_LEVEL=$$(cat /sys/module/vc_mipi_core/parameters/debug 2>/dev/null || echo 3); \
 	sudo modprobe -r bcm2835-unicam; \
-	sudo modprobe -r rp1_cfe; \
+	sudo modprobe -r rp1_cfe_downstream; \
 	sudo modprobe -r vc_mipi_camera; \
 	sudo modprobe -r vc_mipi_modules; \
 	sudo modprobe -r vc_mipi_core; \
-	sudo modprobe bcm2835-unicam; \
-	sudo modprobe rp1_cfe verbose_debug=1; \
-	sudo modprobe vc_mipi_core; \
-	sudo modprobe vc_mipi_modules; \
-	sudo modprobe vc_mipi_camera; \
+	for m in bcm2835_unicam rp1_cfe_downstream vc_mipi_camera vc_mipi_modules vc_mipi_core; do \
+		tries=0; \
+		while lsmod | grep -q "^$$m "; do \
+			tries=$$((tries+1)); \
+			if [ $$tries -gt 25 ]; then \
+				echo "ERROR: $$m still loaded (busy) after 5s, aborting reload - reboot may be required"; \
+				exit 1; \
+			fi; \
+			sleep 0.2; \
+		done; \
+	done; \
+	sudo modprobe bcm2835-unicam || { echo "ERROR: failed to insert bcm2835-unicam"; exit 1; }; \
+	sudo modprobe rp1_cfe_downstream verbose_debug=1 || { echo "ERROR: failed to insert rp1_cfe_downstream"; exit 1; }; \
+	sudo modprobe vc_mipi_core || { echo "ERROR: failed to insert vc_mipi_core"; exit 1; }; \
+	sudo modprobe vc_mipi_modules || { echo "ERROR: failed to insert vc_mipi_modules"; exit 1; }; \
+	sudo modprobe vc_mipi_camera || { echo "ERROR: failed to insert vc_mipi_camera"; exit 1; }; \
 	echo $$LOGGING_LEVEL | sudo tee /sys/module/vc_mipi_core/parameters/debug >/dev/null
 unload:
 	-sudo modprobe -r vc_mipi_camera
