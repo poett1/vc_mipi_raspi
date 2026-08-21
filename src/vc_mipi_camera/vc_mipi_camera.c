@@ -847,17 +847,64 @@ static const struct v4l2_ctrl_config ctrl_trigger_mode = {
     .qmenu = trigger_mode_menu,
 };
 
+/* "Off" (index 0) is accepted unconditionally by vc_mod_set_trigger_mode(),
+ * every other entry requires the matching FLAG_TRIGGER_* bit the sensor
+ * model advertised in vc_mipi_modules.c -- keep this in sync with the mode
+ * checks there. */
+static __u64 vc_trigger_mode_skip_mask(__u32 flags)
+{
+    __u64 mask = 0;
+
+    if (!(flags & FLAG_TRIGGER_EXTERNAL))
+        mask |= 1ULL << 1;
+    if (!(flags & FLAG_TRIGGER_PULSEWIDTH))
+        mask |= 1ULL << 2;
+    if (!(flags & (FLAG_TRIGGER_SELF | FLAG_TRIGGER_SELF_V2)))
+        mask |= 1ULL << 3;
+    if (!(flags & FLAG_TRIGGER_SINGLE))
+        mask |= 1ULL << 4;
+    if (!(flags & (FLAG_TRIGGER_SYNC | FLAG_TRIGGER_SLAVE)))
+        mask |= 1ULL << 5;
+    if (!(flags & FLAG_TRIGGER_STREAM_EDGE))
+        mask |= 1ULL << 6;
+    if (!(flags & FLAG_TRIGGER_STREAM_LEVEL))
+        mask |= 1ULL << 7;
+
+    return mask;
+}
+
+static const char *const io_mode_menu[] = {
+    "Off",
+    "Flash Active High",
+    "Flash Active Low",
+    "Trigger Active Low",
+    "Trigger Active Low / Flash Active High",
+    "Trigger And Flash Active Low"};
+
 static const struct v4l2_ctrl_config ctrl_flash_mode = {
     .ops = &vc_ctrl_ops,
     .id = V4L2_CID_VC_IO_MODE,
     .name = "IO Mode",
-    .type = V4L2_CTRL_TYPE_INTEGER,
+    .type = V4L2_CTRL_TYPE_MENU,
     .flags = V4L2_CTRL_FLAG_EXECUTE_ON_WRITE,
     .min = 0,
-    .max = 5,
-    .step = 1,
+    .max = ARRAY_SIZE(io_mode_menu) - 1,
     .def = 0,
+    .qmenu = io_mode_menu,
 };
+
+/* "Off" (index 0) is accepted unconditionally by vc_mod_set_io_mode(); every
+ * other entry requires FLAG_IO_ENABLED on the sensor model -- keep this in
+ * sync with the mode checks there. */
+static __u64 vc_io_mode_skip_mask(__u32 flags)
+{
+    __u64 mask = 0;
+
+    if (!(flags & FLAG_IO_ENABLED))
+        mask |= (1ULL << 1) | (1ULL << 2) | (1ULL << 3) | (1ULL << 4) | (1ULL << 5);
+
+    return mask;
+}
 
 static const struct v4l2_ctrl_config ctrl_frame_rate = {
     .ops = &vc_ctrl_ops,
@@ -1293,9 +1340,14 @@ static int vc_sd_init(struct vc_device *device)
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_blacklevel, &device->blacklevel_ctrl);
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_orientation, &ctrl);
 
-        ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_trigger_mode, &ctrl);
+        struct v4l2_ctrl_config trigger_mode_cfg = ctrl_trigger_mode;
+        trigger_mode_cfg.menu_skip_mask = vc_trigger_mode_skip_mask(device->cam.ctrl.flags);
+        ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &trigger_mode_cfg, &ctrl);
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_rotation, &ctrl);
-        ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_flash_mode, &ctrl);
+
+        struct v4l2_ctrl_config io_mode_cfg = ctrl_flash_mode;
+        io_mode_cfg.menu_skip_mask = vc_io_mode_skip_mask(device->cam.ctrl.flags);
+        ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &io_mode_cfg, &ctrl);
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_frame_rate, &ctrl);
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_single_trigger, &ctrl);
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_binning_mode, &ctrl);
@@ -1307,6 +1359,7 @@ static int vc_sd_init(struct vc_device *device)
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_hblank, &device->hblank_ctrl);
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_vblank, &device->vblank_ctrl);
         ret |= vc_ctrl_init_ctrl_lc(device, &device->ctrl_handler);
+        
         if (ret)
         {
                 vc_err(dev, "%s(): Failed to set format\n", __func__);
