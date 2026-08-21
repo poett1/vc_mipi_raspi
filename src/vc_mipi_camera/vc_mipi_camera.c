@@ -3,7 +3,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/pm_runtime.h>
 #include <linux/version.h>
-#include <linux/of_graph.h> 
+#include <linux/of_graph.h>
 #include <linux/property.h> // For device_property_read_bool()
 
 #include <media/v4l2-subdev.h>
@@ -49,12 +49,14 @@ enum private_cids
         V4L2_CID_VC_NAME,
 };
 
-enum pad_types {
-	IMAGE_PAD,
-	METADATA_PAD,
-	NUM_PADS
+enum pad_types
+{
+        IMAGE_PAD,
+        METADATA_PAD,
+        NUM_PADS
 };
-struct vc_control_int_menu {
+struct vc_control_int_menu
+{
         struct v4l2_ctrl *ctrl;
         const struct v4l2_ctrl_ops *ops;
 };
@@ -74,7 +76,7 @@ struct vc_device
         struct v4l2_ctrl *hblank_ctrl;
         struct v4l2_ctrl *vblank_ctrl;
         struct v4l2_ctrl *blacklevel_ctrl;
-
+        struct v4l2_ctrl *pixel_rate_ctrl;
 };
 static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam);
 static void vc_update_blacklevel_ctrl(struct vc_device *device, struct vc_cam *cam);
@@ -90,31 +92,29 @@ static inline struct vc_cam *to_vc_cam(struct v4l2_subdev *sd)
         return &device->cam;
 }
 
-
-static        struct vc_control hblank; 
-static        struct vc_control vblank; 
-static        struct vc_control pixel_rate; 
+static struct vc_control hblank;
+static struct vc_control vblank;
+static struct vc_control pixel_rate;
 // Unsupported mbus codes for libcamera
-static int unsupported_mbus_codes[1]=
-{
-        MEDIA_BUS_FMT_Y14_1X14
-};
+static int unsupported_mbus_codes[1] =
+    {
+        MEDIA_BUS_FMT_Y14_1X14};
 
-static struct vc_control64 linkfreq  = {
-        .min = 0,
-        .max = 0,
-        .def = 0,
-    };
+static struct vc_control64 linkfreq = {
+    .min = 0,
+    .max = 0,
+    .def = 0,
+};
 
 static void update_frame_rate_ctrl(struct vc_cam *cam, struct vc_device *device);
 int vc_sd_update_fmt(struct vc_device *device);
 
 static void vc_get_binning_scale(struct vc_cam *cam, __u8 *h_scale, __u8 *v_scale)
 {
-    struct vc_binning *binning = vc_core_get_binning(cam);
+        struct vc_binning *binning = vc_core_get_binning(cam);
 
-    *h_scale = binning->h_factor == 0 ? 1 : binning->h_factor;
-    *v_scale = binning->v_factor == 0 ? 1 : binning->v_factor;
+        *h_scale = binning->h_factor == 0 ? 1 : binning->h_factor;
+        *v_scale = binning->v_factor == 0 ? 1 : binning->v_factor;
 }
 // Libcamera does not support all mbus codes, so we need to filter them out
 static void vc_init_supported_mbus_codes(struct vc_device *device)
@@ -124,29 +124,32 @@ static void vc_init_supported_mbus_codes(struct vc_device *device)
 
         int i, j, counter = 0;
 
-        for (i = 0; i < MAX_MBUS_CODES; i++) {
+        for (i = 0; i < MAX_MBUS_CODES; i++)
+        {
                 device->supported_mbus_codes[i] = 0;
         }
 
-        for (i = 0; i < MAX_MBUS_CODES; i++) {
-                if(device->libcamera_enabled)
+        for (i = 0; i < MAX_MBUS_CODES; i++)
+        {
+                if (device->libcamera_enabled)
                 {
-                        for(j = 0; j < ARRAY_SIZE(unsupported_mbus_codes); j++)
+                        for (j = 0; j < ARRAY_SIZE(unsupported_mbus_codes); j++)
                         {
                                 if (cam->ctrl.mbus_codes[i] == unsupported_mbus_codes[j])
                                 {
                                         vc_dbg(dev, "%s(): Skipping unsupported mbus code: 0x%04x\n", __func__, cam->ctrl.mbus_codes[i]);
                                         goto skip_code;
-    }
-                                
-
-        }
+                                }
+                        }
                 }
-                vc_notice(dev, "%s(): Adding mbus code: 0x%04x\n", __func__, cam->ctrl.mbus_codes[i]);                
-                device->supported_mbus_codes[counter] = cam->ctrl.mbus_codes[i];
-                counter++;
-                skip_code:
-                ;
+                if (cam->ctrl.mbus_codes[i] > 0)
+                {
+                        vc_notice(dev, "%s(): Adding mbus code: 0x%04x\n", __func__, cam->ctrl.mbus_codes[i]);
+                        device->supported_mbus_codes[counter] = cam->ctrl.mbus_codes[i];
+                        counter++;
+                }
+
+        skip_code:;
         }
 }
 // --- v4l2_subdev_core_ops ---------------------------------------------------
@@ -220,8 +223,6 @@ static int __maybe_unused vc_resume(struct device *dev)
         return 0;
 }
 
-
-
 static int vc_sd_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *control)
 {
         struct vc_cam *cam = to_vc_cam(sd);
@@ -234,15 +235,18 @@ static int vc_sd_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *control)
         {
 
         case V4L2_CID_HBLANK:
-                if (cam->ctrl.clk_pixel > 0 && pixel_rate.max > 0) {
+                if (cam->ctrl.clk_pixel > 0 && pixel_rate.max > 0)
+                {
                         u32 active_width = cam->state.frame.width > 0
-                                           ? cam->state.frame.width
-                                           : cam->ctrl.frame.width;
+                                               ? cam->state.frame.width
+                                               : cam->ctrl.frame.width;
                         u32 new_hmax = (u32)div_u64(
-                                (u64)(active_width + control->value) * cam->ctrl.clk_pixel,
-                                pixel_rate.max);
+                            (u64)(active_width + control->value) * cam->ctrl.clk_pixel,
+                            pixel_rate.max);
                         vc_core_set_hmax_overwrite(cam, new_hmax);
-                } else {
+                }
+                else
+                {
                         /* Align hblank to lane boundary (num_lanes is power of 2) */
                         u32 aligned_hblank = control->value & ~(num_lanes - 1);
                         vc_core_set_hmax_overwrite(cam, mode->hmax.def + aligned_hblank / num_lanes);
@@ -250,15 +254,16 @@ static int vc_sd_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *control)
                 vc_notice(dev, "%s(): Set HBLANK: %d\n", __func__, control->value);
                 vc_sen_set_hmax(cam);
                 return 0;
-                
-        case V4L2_CID_VBLANK: {
+
+        case V4L2_CID_VBLANK:
+        {
                 /* Use the active (crop) height, not the full sensor native height.
                  * Frame period is VMAX x 1H for every sensor — FLAG_DOUBLE_HEIGHT
                  * affects ROI geometry, not the VMAX line total, so VMAX is simply
                  * active_height + vblank. */
                 u32 active_height = cam->state.frame.height > 0
-                                    ? cam->state.frame.height
-                                    : cam->ctrl.frame.height;
+                                        ? cam->state.frame.height
+                                        : cam->ctrl.frame.height;
                 vc_core_set_vmax_overwrite(cam, active_height + control->value);
                 vc_sen_write_vmax(&cam->ctrl, cam->state.vmax_overwrite);
                 return 0;
@@ -268,16 +273,15 @@ static int vc_sd_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *control)
                 return 0; // Currently not planned to be implemented
 
         case V4L2_CID_EXPOSURE:
-                if(device->libcamera_enabled)
+                if (device->libcamera_enabled)
                 {
                         // libcamera's unit for exposure is in lines count
                         return vc_sen_set_exposure(cam, control->value * vc_core_get_time_per_line_ns(cam) / 1000);
                 }
                 else
                 {
-                        return vc_sen_set_exposure(cam, control->value );
+                        return vc_sen_set_exposure(cam, control->value);
                 }
-      
 
         case V4L2_CID_ANALOGUE_GAIN:
         case V4L2_CID_GAIN:
@@ -292,8 +296,8 @@ static int vc_sd_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *control)
                 return vc_mod_set_io_mode(cam, control->value);
 
         case V4L2_CID_VC_FRAME_RATE:
-        
-                ret =  vc_core_set_framerate(cam, control->value);                
+
+                ret = vc_core_set_framerate(cam, control->value);
                 vc_update_clk_rates(device, cam);
                 return ret;
 
@@ -309,7 +313,6 @@ static int vc_sd_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *control)
         case V4L2_CID_LIVE_ROI:
                 return vc_core_live_roi(cam, control->value);
 
-
         default:
                 vc_warn(dev, "%s(): Unknown control 0x%08x\n", __func__, control->id);
                 return -EINVAL;
@@ -319,8 +322,6 @@ static int vc_sd_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *control)
 }
 
 // --- v4l2_subdev_video_ops ---------------------------------------------------
-
-
 
 static int vc_sd_s_stream(struct v4l2_subdev *sd, int enable)
 {
@@ -353,8 +354,9 @@ static int vc_sd_s_stream(struct v4l2_subdev *sd, int enable)
                         goto err_rpm_put;
                 }
 
-                update_frame_rate_ctrl(cam,device);
 
+                vc_update_clk_rates(device, cam);
+                update_frame_rate_ctrl(cam, device);
         }
         else
         {
@@ -388,7 +390,6 @@ static int vc_sd_get_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_state *state
         mf->code = vc_core_get_format(cam);
         frame = vc_core_get_frame(cam);
 
-        
         mf->width = frame->width;
         mf->height = frame->height;
         mf->field = V4L2_FIELD_NONE;
@@ -407,13 +408,13 @@ static int vc_sd_set_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_state *state
 
         mutex_lock(&device->mutex);
 
-	vc_core_set_format(cam, mf->code);
-	vc_core_set_frame(cam, 0, 0, mf->width, mf->height);
+        vc_core_set_format(cam, mf->code);
+        vc_core_set_frame(cam, 0, 0, mf->width, mf->height);
         mf->field = V4L2_FIELD_NONE;
         mf->colorspace = V4L2_COLORSPACE_SRGB;
 
         mutex_unlock(&device->mutex);
-        
+
         return 0;
 }
 
@@ -421,31 +422,29 @@ int vc_sd_enum_mbus_code(struct v4l2_subdev *sd, struct v4l2_subdev_state *state
 {
         struct vc_device *device = to_vc_device(sd);
         int i;
-        for(i = 0; i < MAX_MBUS_CODES; i++)
+        for (i = 0; i < MAX_MBUS_CODES; i++)
         {
-               if(device->supported_mbus_codes[i] == 0)
-               break;
+                if (device->supported_mbus_codes[i] == 0)
+                        break;
         }
 
         if (code->pad >= NUM_PADS)
-		return -EINVAL;
-        if (code->pad == IMAGE_PAD) {
-		if (code->index >= i)
-			return -EINVAL;               
-		code->code = device->supported_mbus_codes[code->index];
+                return -EINVAL;
+        if (code->pad == IMAGE_PAD)
+        {
+                if (code->index >= i)
+                        return -EINVAL;
+                code->code = device->supported_mbus_codes[code->index];
+        }
+        else
+        {
+                if (code->index > 0)
+                        return -EINVAL;
 
-	} else {
-		if (code->index > 0)
-			return -EINVAL;
-
-		code->code = MEDIA_BUS_FMT_SENSOR_DATA;
-	}
-
+                code->code = MEDIA_BUS_FMT_SENSOR_DATA;
+        }
 
         return 0;
-
-        
-
 }
 
 int vc_sd_enum_frame_size(struct v4l2_subdev *sd, struct v4l2_subdev_state *cfg, struct v4l2_subdev_frame_size_enum *fse)
@@ -454,7 +453,7 @@ int vc_sd_enum_frame_size(struct v4l2_subdev *sd, struct v4l2_subdev_state *cfg,
         struct vc_cam *cam = to_vc_cam(sd);
         __u8 h_scale, v_scale;
         vc_get_binning_scale(cam, &h_scale, &v_scale);
-        vc_frame *frame = vc_core_get_frame(cam);
+        vc_frame *frame = &cam->ctrl.frame;
         int codeIx;
         if (fse->index != 0)
                 return -EINVAL;
@@ -463,12 +462,14 @@ int vc_sd_enum_frame_size(struct v4l2_subdev *sd, struct v4l2_subdev_state *cfg,
 
         bool format_supported = false;
 
-        for (codeIx = 0; codeIx < ARRAY_SIZE(device->supported_mbus_codes); codeIx++) {
-                if (device->supported_mbus_codes[codeIx] == fse->code) {
+        for (codeIx = 0; codeIx < ARRAY_SIZE(device->supported_mbus_codes); codeIx++)
+        {
+                if (device->supported_mbus_codes[codeIx] == fse->code)
+                {
                         format_supported = true;
-                        break;         
-                }       
-        }        
+                        break;
+                }
+        }
 
         if (!format_supported)
         {
@@ -476,21 +477,17 @@ int vc_sd_enum_frame_size(struct v4l2_subdev *sd, struct v4l2_subdev_state *cfg,
                 return -EINVAL;
         }
 
-
         // Frame sizes are the same for different formats
 
         fse->min_width = 32;
         fse->max_width = frame->width / h_scale;
         fse->min_height = 32;
-        fse->max_height = frame->height /v_scale;
+        fse->max_height = frame->height / v_scale;
 
         mutex_unlock(&device->mutex);
 
         return 0;
 }
-
-
-
 
 static int vc_sd_get_selection(struct v4l2_subdev *sd,
                                struct v4l2_subdev_state *cfg,
@@ -503,27 +500,28 @@ static int vc_sd_get_selection(struct v4l2_subdev *sd,
 
         mutex_lock(&device->mutex);
 
-        switch (sel->target) {
+        switch (sel->target)
+        {
         case V4L2_SEL_TGT_CROP:
                 sel->r.left = frame->left;
                 sel->r.top = frame->top;
                 sel->r.width = frame->width;
                 sel->r.height = frame->height;
                 break;
-	case V4L2_SEL_TGT_CROP_DEFAULT:
-	case V4L2_SEL_TGT_CROP_BOUNDS:
-		sel->r.left = 0;
-		sel->r.top = 0;
-		sel->r.width = frame_bounds->width;
-		sel->r.height = frame_bounds->height;
-		break;
+        case V4L2_SEL_TGT_CROP_DEFAULT:
+        case V4L2_SEL_TGT_CROP_BOUNDS:
+                sel->r.left = 0;
+                sel->r.top = 0;
+                sel->r.width = frame_bounds->width;
+                sel->r.height = frame_bounds->height;
+                break;
         }
 
         mutex_unlock(&device->mutex);
 
-        return 0;        
-    }
-    
+        return 0;
+}
+
 static int vc_sd_set_selection(struct v4l2_subdev *sd,
                                struct v4l2_subdev_state *cfg,
                                struct v4l2_subdev_selection *sel)
@@ -538,11 +536,9 @@ static int vc_sd_set_selection(struct v4l2_subdev *sd,
         vc_core_set_frame(cam, sel->r.left, sel->r.top, sel->r.width, sel->r.height);
 
         vc_dbg(dev, "Rect: left=%d, top=%d, width=%d, height=%d\n",
-                sel->r.left, sel->r.top, sel->r.width, sel->r.height);
+               sel->r.left, sel->r.top, sel->r.width, sel->r.height);
 
-       
-
-    return 0;
+        return 0;
 }
 
 // --- v4l2_ctrl_ops ---------------------------------------------------
@@ -558,14 +554,13 @@ int vc_ctrl_s_ctrl(struct v4l2_ctrl *ctrl)
         {
                 vc_err(&client->dev, "%s(): Device is powered off, cannot set control 0x%08x\n", __func__, ctrl->id);
                 return -ENODEV;
-
         }
 
         control.id = ctrl->id;
         control.value = ctrl->val;
         vc_sd_s_ctrl(&device->sd, &control);
 
-	pm_runtime_put(&client->dev);
+        pm_runtime_put(&client->dev);
 
         return 0;
 }
@@ -574,17 +569,19 @@ static int vc_ctrl_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 {
         struct vc_device *device = container_of(ctrl->handler, struct vc_device, ctrl_handler);
         struct vc_cam *cam = &device->cam;
-        if (ctrl->id == V4L2_CID_VC_NAME) {
+        if (ctrl->id == V4L2_CID_VC_NAME)
+        {
                 strscpy(ctrl->p_new.p_char, device->cam.desc.sen_type, ctrl->maximum + 1);
                 return 0;
         }
-        if (ctrl->id == V4L2_CID_LIVE_ROI) {
+        if (ctrl->id == V4L2_CID_LIVE_ROI)
+        {
                 ctrl->val = cam->state.binning_mode * 100000000 +
-                        cam->state.frame.left * 10000 +
-                        cam->state.frame.top;
+                            cam->state.frame.left * 10000 +
+                            cam->state.frame.top;
                 return 0;
         }
-    return -EINVAL;
+        return -EINVAL;
 }
 
 static int vc_get_bit_depth(__u8 mipi_format)
@@ -606,11 +603,7 @@ static int vc_get_bit_depth(__u8 mipi_format)
         return 0;
 }
 
-
-
 // *** Initialisation *********************************************************
-
-
 
 static int vc_check_hwcfg(struct vc_cam *cam, struct device *dev, struct vc_device *device)
 {
@@ -632,14 +625,18 @@ static int vc_check_hwcfg(struct vc_cam *cam, struct device *dev, struct vc_devi
                 goto error_out;
         }
 
-        if (device_property_read_bool(dev, "libcamera")) {
+        if (device_property_read_bool(dev, "libcamera"))
+        {
                 device->libcamera_enabled = true;
                 dev_info(dev, "libcamera support enabled\n");
-        } else {
+        }
+        else
+        {
                 dev_info(dev, "libcamera support disabled\n");
         }
 
-        if (device_property_read_bool(dev, "force-color-mode")) {
+        if (device_property_read_bool(dev, "force-color-mode"))
+        {
                 device->force_color_mode = 1;
                 dev_info(dev, "force-color-mode enabled\n");
         }
@@ -661,7 +658,7 @@ static const struct v4l2_subdev_core_ops vc_core_ops = {
 };
 
 static const struct v4l2_subdev_video_ops vc_video_ops = {
-    .s_stream          = vc_sd_s_stream,
+    .s_stream = vc_sd_s_stream,
 };
 
 static const struct v4l2_subdev_pad_ops vc_pad_ops = {
@@ -684,7 +681,7 @@ static const struct v4l2_ctrl_ops vc_ctrl_ops = {
     .g_volatile_ctrl = vc_ctrl_g_volatile_ctrl,
 };
 
-static int vc_ctrl_init_ctrl(struct vc_device *device, struct v4l2_ctrl_handler *hdl, int id, struct vc_control *control, int flags)
+static int vc_ctrl_init_ctrl(struct vc_device *device, struct v4l2_ctrl_handler *hdl, int id, struct vc_control *control, int flags, struct v4l2_ctrl **out_ctrl)
 {
         struct i2c_client *client = device->cam.ctrl.client_sen;
         struct device *dev = &client->dev;
@@ -695,14 +692,15 @@ static int vc_ctrl_init_ctrl(struct vc_device *device, struct v4l2_ctrl_handler 
         {
                 vc_err(dev, "%s(): Failed to init 0x%08x ctrl\n", __func__, id);
                 return -EIO;
-        }        
+        }
         if (flags)
                 ctrl->flags |= flags;
+        if (out_ctrl)
+                *out_ctrl = ctrl;
 
         return 0;
 }
 
- 
 static int vc_ctrl_init_ctrl_special(struct vc_device *device, struct v4l2_ctrl_handler *hdl, int id, int min, int max, int def)
 {
         struct i2c_client *client = device->cam.ctrl.client_sen;
@@ -710,14 +708,14 @@ static int vc_ctrl_init_ctrl_special(struct vc_device *device, struct v4l2_ctrl_
         struct v4l2_ctrl *ctrl;
 
         ctrl = v4l2_ctrl_new_std(&device->ctrl_handler, &vc_ctrl_ops, id, min, max, 1, def);
-        if (ctrl == NULL) {
+        if (ctrl == NULL)
+        {
                 vc_err(dev, "%s(): Failed to init 0x%08x ctrl\n", __func__, id);
                 return -EIO;
         }
 
         return 0;
 }
-
 
 static int vc_ctrl_init_ctrl_lfreq(struct vc_device *device, struct v4l2_ctrl_handler *hdl, int id, struct vc_control64 *control)
 {
@@ -800,7 +798,7 @@ static int vc_ctrl_init_custom_ctrl(struct vc_device *device, struct v4l2_ctrl_h
         {
                 vc_err(dev, "%s(): Failed to init 0x%08x ctrl\n", __func__, config->id);
                 return -EIO;
-        }       
+        }
         return 0;
 }
 static const struct v4l2_ctrl_config ctrl_rotation = {
@@ -808,7 +806,7 @@ static const struct v4l2_ctrl_config ctrl_rotation = {
     .id = V4L2_CID_CAMERA_SENSOR_ROTATION,
     .name = "Sensor rotation",
     .type = V4L2_CTRL_TYPE_INTEGER,
-    .flags = V4L2_CTRL_FLAG_EXECUTE_ON_WRITE | V4L2_CTRL_FLAG_MODIFY_LAYOUT ,
+    .flags = V4L2_CTRL_FLAG_EXECUTE_ON_WRITE | V4L2_CTRL_FLAG_MODIFY_LAYOUT,
     .min = 0,
     .max = 360,
     .step = 1,
@@ -827,7 +825,7 @@ static const struct v4l2_ctrl_config ctrl_orientation = {
     .def = V4L2_CAMERA_ORIENTATION_FRONT,
 };
 
-static const char * const trigger_mode_menu[] = {
+static const char *const trigger_mode_menu[] = {
     "Off",
     "External",
     "Pulse Width",
@@ -835,18 +833,16 @@ static const char * const trigger_mode_menu[] = {
     "Single",
     "Sync",
     "Stream Edge",
-    "Stream Level"
-};
+    "Stream Level"};
 
 static const struct v4l2_ctrl_config ctrl_trigger_mode = {
     .ops = &vc_ctrl_ops,
     .id = V4L2_CID_VC_TRIGGER_MODE,
     .name = "Trigger Mode",
-    .type = V4L2_CTRL_TYPE_INTEGER,
+    .type = V4L2_CTRL_TYPE_MENU,
     .flags = V4L2_CTRL_FLAG_EXECUTE_ON_WRITE,
     .min = 0,
-    .max = 7,
-    .step = 1,
+    .max = ARRAY_SIZE(trigger_mode_menu) - 1,
     .def = 0,
     .qmenu = trigger_mode_menu,
 };
@@ -892,7 +888,7 @@ static const struct v4l2_ctrl_config ctrl_binning_mode = {
     .id = V4L2_CID_VC_BINNING_MODE,
     .name = "Binning Mode",
     .type = V4L2_CTRL_TYPE_INTEGER,
-    .flags = V4L2_CTRL_FLAG_EXECUTE_ON_WRITE | V4L2_CTRL_FLAG_MODIFY_LAYOUT ,
+    .flags = V4L2_CTRL_FLAG_EXECUTE_ON_WRITE | V4L2_CTRL_FLAG_MODIFY_LAYOUT,
     .min = 0,
     .max = 4,
     .step = 1,
@@ -900,15 +896,15 @@ static const struct v4l2_ctrl_config ctrl_binning_mode = {
 };
 
 static const struct v4l2_ctrl_config ctrl_live_roi = {
-        .ops = &vc_ctrl_ops,
-        .id = V4L2_CID_LIVE_ROI,
-        .name = "Live Roi",
-        .type = V4L2_CTRL_TYPE_INTEGER,
-        .flags = V4L2_CTRL_FLAG_EXECUTE_ON_WRITE | V4L2_CTRL_FLAG_VOLATILE,
-        .min = 0,
-        .max = 999999999,
-        .step = 1,
-        .def = 0,
+    .ops = &vc_ctrl_ops,
+    .id = V4L2_CID_LIVE_ROI,
+    .name = "Live Roi",
+    .type = V4L2_CTRL_TYPE_INTEGER,
+    .flags = V4L2_CTRL_FLAG_EXECUTE_ON_WRITE | V4L2_CTRL_FLAG_VOLATILE,
+    .min = 0,
+    .max = 999999999,
+    .step = 1,
+    .def = 0,
 };
 
 /* Non-const: def is updated by vc_update_clk_rates() to match the current mode */
@@ -938,31 +934,29 @@ static const struct v4l2_ctrl_config ctrl_name = {
 
 /* Non-const: min/max/def are updated by vc_update_clk_rates() before ctrl creation */
 static struct v4l2_ctrl_config ctrl_hblank = {
-    .ops   = &vc_ctrl_ops,
-    .id    = V4L2_CID_HBLANK,
-    .name  = "Horizontal Blanking",
-    .type  = V4L2_CTRL_TYPE_INTEGER,
+    .ops = &vc_ctrl_ops,
+    .id = V4L2_CID_HBLANK,
+    .name = "Horizontal Blanking",
+    .type = V4L2_CTRL_TYPE_INTEGER,
     .flags = V4L2_CTRL_FLAG_READ_ONLY,
-    .min   = 0,
-    .max   = 0,
-    .step  = 1,
-    .def   = 0,
+    .min = 0,
+    .max = 0,
+    .step = 1,
+    .def = 0,
 };
 
 /* Non-const: min/max/def are updated by vc_update_clk_rates() before ctrl creation */
 static struct v4l2_ctrl_config ctrl_vblank = {
-    .ops   = &vc_ctrl_ops,
-    .id    = V4L2_CID_VBLANK,
-    .name  = "Vertical Blanking",
-    .type  = V4L2_CTRL_TYPE_INTEGER,
+    .ops = &vc_ctrl_ops,
+    .id = V4L2_CID_VBLANK,
+    .name = "Vertical Blanking",
+    .type = V4L2_CTRL_TYPE_INTEGER,
     .flags = 0,
-    .min   = 0,
-    .max   = 0,
-    .step  = 1,
-    .def   = 0,
+    .min = 0,
+    .max = 0,
+    .step = 1,
+    .def = 0,
 };
-
-
 
 static vc_mode *vc_get_mode(struct vc_cam *cam)
 {
@@ -973,11 +967,11 @@ static vc_mode *vc_get_mode(struct vc_cam *cam)
         struct vc_desc_mode *mode_desc = &cam->desc.modes[safe_idx];
         vc_mode *mode = NULL;
 
-        for(int i = 0; i < MAX_VC_DESC_MODES; i++)
+        for (int i = 0; i < MAX_VC_DESC_MODES; i++)
         {
-                if(mode_desc->format == cam->ctrl.mode[i].format && 
-                        mode_desc->num_lanes == cam->ctrl.mode[i].num_lanes && 
-                        mode_desc->binning == cam->ctrl.mode[i].binning)
+                if (mode_desc->format == cam->ctrl.mode[i].format &&
+                    mode_desc->num_lanes == cam->ctrl.mode[i].num_lanes &&
+                    mode_desc->binning == cam->ctrl.mode[i].binning)
                 {
                         mode = &cam->ctrl.mode[i];
                         break;
@@ -985,9 +979,12 @@ static vc_mode *vc_get_mode(struct vc_cam *cam)
         }
         /* Fallback: if still no match (e.g. ROM mode 0 format/lanes not yet
          * reflected in ctrl modes), use the first valid ctrl mode. */
-        if (!mode) {
-                for (int i = 0; i < MAX_VC_MODES; i++) {
-                        if (cam->ctrl.mode[i].num_lanes > 0) {
+        if (!mode)
+        {
+                for (int i = 0; i < MAX_VC_MODES; i++)
+                {
+                        if (cam->ctrl.mode[i].num_lanes > 0)
+                        {
                                 mode = &cam->ctrl.mode[i];
                                 break;
                         }
@@ -1004,7 +1001,8 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam)
         /* Use the same safe index as vc_get_mode to avoid OOB when state.mode
          * is still the 0xff sentinel set by vc_core_state_init. */
         __u8 safe_mode_idx = (cam->state.mode < cam->desc.num_modes)
-                             ? cam->state.mode : 0;
+                                 ? cam->state.mode
+                                 : 0;
         struct vc_desc_mode *mode_desc = &cam->desc.modes[safe_mode_idx];
         int num_lanes = mode->num_lanes;
         int bit_depth = vc_get_bit_depth(mode->format);
@@ -1021,7 +1019,6 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam)
         pixel_rate.max = (u32)((u64)data_rate_mbps * num_lanes / bit_depth * 1000000);
         pixel_rate.def = pixel_rate.max;
 
-
         /* Compute actual vblank at the current operating point so that
          * seninf's calc_buffered_pixel_rate() gets a correct frame-line
          * count and sets its frame monitor to fire at the right interval.
@@ -1031,30 +1028,49 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam)
          * as vc_core_get_optimized_vmax). */
         {
                 u32 height = cam->state.frame.height > 0
-                             ? cam->state.frame.height
-                             : cam->ctrl.frame.height;
+                                 ? cam->state.frame.height
+                                 : cam->ctrl.frame.height;
                 u32 vmax_actual;
                 /* Frame period is VMAX x 1H for every sensor, including
                  * FLAG_DOUBLE_HEIGHT ones (e.g. IMX335, IMX415) — that flag
                  * affects ROI geometry, not the VMAX line total, so vmax.def/max
                  * are already in output-line units and need no extra scaling. */
-                vblank.min = mode->vmax.def > height
-                             ? mode->vmax.def - height : 0;
+                /* Datasheet-derived VMAX floor (VMAX >= height + margin, VMAX >= floor)
+                 * takes precedence when a sensor mode specifies it; otherwise fall
+                 * back to the generic vmax.def-based bound used for unresearched
+                 * sensors. */
+                if (mode->vmax_row_margin > 0 || mode->vmax_row_floor > 0)
+                {
+                        u32 vmax_min_real = height + mode->vmax_row_margin;
+                        if (mode->vmax_row_floor > vmax_min_real)
+                                vmax_min_real = mode->vmax_row_floor;
+                        vblank.min = vmax_min_real > height ? vmax_min_real - height : 0;
+                }
+                else
+                {
+                        vblank.min = mode->vmax.def > height
+                                         ? mode->vmax.def - height
+                                         : 0;
+                }
                 vblank.max = mode->vmax.max > height
-                             ? mode->vmax.max - height : 0;
+                                 ? mode->vmax.max - height
+                                 : 0;
 
-                if (cam->state.framerate > 0 && cam->ctrl.clk_pixel > 0) {
+                if (cam->state.framerate > 0 && cam->ctrl.clk_pixel > 0)
+                {
                         /* frame_period_ns = 1e12 / framerate_mHz */
                         u32 frame_period_ns = (u32)div_u64(1000000000000ULL,
                                                            cam->state.framerate);
                         u32 period_1H_ns = (u32)div_u64(
-                                (u64)mode->hmax.def * 1000000000ULL,
-                                cam->ctrl.clk_pixel);
+                            (u64)mode->hmax.def * 1000000000ULL,
+                            cam->ctrl.clk_pixel);
                         /* frame_period / period_1H gives VMAX in output-line units. */
                         vmax_actual = period_1H_ns > 0
-                                      ? (frame_period_ns / period_1H_ns)
-                                      : mode->vmax.def;
-                } else {
+                                          ? (frame_period_ns / period_1H_ns)
+                                          : mode->vmax.def;
+                }
+                else
+                {
                         /* Native fps — apply crop optimisation in output-line units */
                         vmax_actual = mode->vmax.def;
                         if ((cam->ctrl.flags & FLAG_INCREASE_FRAME_RATE) &&
@@ -1063,8 +1079,8 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam)
                 }
 
                 vblank.def = vmax_actual > height
-                             ? vmax_actual - height
-                             : vblank.min;
+                                 ? vmax_actual - height
+                                 : vblank.min;
                 if (vblank.def < vblank.min)
                         vblank.def = vblank.min;
 
@@ -1081,7 +1097,8 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam)
                  * floor = 408279424  (~408 MHz, observed in seninf logs)
                  * vb_min = ceil(floor / ((width+hblank) * fps_Hz)) - height
                  */
-                if (cam->state.framerate > 0 && hblank.min > 0) {
+                if (cam->state.framerate > 0 && hblank.min > 0)
+                {
                         u32 fps_hz_x1000 = cam->state.framerate; /* milli-fps */
                         /* Use the active (crop) width — seninf computes its frame monitor
                          * period as (crop_w + hblank) × (crop_h + vblank) × fps.
@@ -1089,13 +1106,13 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam)
                          * row_pixels that is ~2× too large, making needed_total too small
                          * and suppressing the floor padding when cropped. */
                         u32 active_width = cam->state.frame.width > 0
-                                           ? cam->state.frame.width
-                                           : cam->ctrl.frame.width;
+                                               ? cam->state.frame.width
+                                               : cam->ctrl.frame.width;
                         u32 row_pixels = active_width + hblank.min;
                         /* needed_total = ceil(408279424 * 1000 / (row_pixels * fps_hz_x1000)) */
                         u32 needed_total = (u32)div_u64(
-                                408279424ULL * 1000 + (u64)row_pixels * fps_hz_x1000 - 1,
-                                (u64)row_pixels * fps_hz_x1000);
+                            408279424ULL * 1000 + (u64)row_pixels * fps_hz_x1000 - 1,
+                            (u64)row_pixels * fps_hz_x1000);
                         if (needed_total > height + vblank.def)
                                 vblank.def = needed_total - height;
                 }
@@ -1109,27 +1126,33 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam)
          * Example – IMX900 mode 7 (4-lane 10bit):
          *   HMAX=364, pixel_rate=594 MHz, clk_pixel=74.25 MHz
          *   hmax_output = 364 * 8 = 2912, hblank = 2912 - 2048 = 864 */
-        if (cam->ctrl.clk_pixel > 0) {
+        if (cam->ctrl.clk_pixel > 0)
+        {
                 /* Use the active (crop) width, not the full sensor width — a
                  * cropped mode's output width is narrower than hmax_*_out,
                  * so using the full sensor width here underestimates hblank
                  * and libcamera derives too small a line time from it. */
                 u32 active_width = cam->state.frame.width > 0
-                                   ? cam->state.frame.width
-                                   : cam->ctrl.frame.width;
+                                       ? cam->state.frame.width
+                                       : cam->ctrl.frame.width;
                 u32 hmax_min_out = (u32)div_u64((u64)mode->hmax.min * pixel_rate.max,
-                                               cam->ctrl.clk_pixel);
+                                                cam->ctrl.clk_pixel);
                 u32 hmax_max_out = (u32)div_u64((u64)mode->hmax.max * pixel_rate.max,
-                                               cam->ctrl.clk_pixel);
+                                                cam->ctrl.clk_pixel);
                 u32 hmax_def_out = (u32)div_u64((u64)mode->hmax.def * pixel_rate.max,
-                                               cam->ctrl.clk_pixel);
+                                                cam->ctrl.clk_pixel);
                 hblank.min = (hmax_min_out > active_width)
-                             ? hmax_min_out - active_width : 0;
+                                 ? hmax_min_out - active_width
+                                 : 0;
                 hblank.max = (hmax_max_out > active_width)
-                             ? hmax_max_out - active_width : 0;
+                                 ? hmax_max_out - active_width
+                                 : 0;
                 hblank.def = (hmax_def_out > active_width)
-                             ? hmax_def_out - active_width : 0;
-        } else {
+                                 ? hmax_def_out - active_width
+                                 : 0;
+        }
+        else
+        {
                 hblank.min = 0;
                 hblank.max = 0;
                 hblank.def = 0;
@@ -1154,12 +1177,13 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam)
          * this function runs inside s_ctrl which already holds
          * ctrl_handler->lock, and v4l2_ctrl_find() would try to acquire
          * the same lock → deadlock. */
-        if (device->hblank_ctrl) {
-                device->hblank_ctrl->minimum       = hblank.min;
-                device->hblank_ctrl->maximum       = hblank.max;
+        if (device->hblank_ctrl)
+        {
+                device->hblank_ctrl->minimum = hblank.min;
+                device->hblank_ctrl->maximum = hblank.max;
                 device->hblank_ctrl->default_value = hblank.def;
-                device->hblank_ctrl->val           = hblank.def;
-                device->hblank_ctrl->cur.val       = hblank.def;
+                device->hblank_ctrl->val = hblank.def;
+                device->hblank_ctrl->cur.val = hblank.def;
                 /* Also propagate the read-only flag so a writable hmax range
                  * (MODE_HMAX) is correctly exposed after the first set_fmt. */
                 if (mode->hmax.min == mode->hmax.max)
@@ -1169,14 +1193,24 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam)
         }
 
         /* Update live V4L2_CID_VBLANK control with the actual vblank. */
-        if (device->vblank_ctrl) {
-                device->vblank_ctrl->minimum       = vblank.min;
-                device->vblank_ctrl->maximum       = vblank.max;
+        if (device->vblank_ctrl)
+        {
+                device->vblank_ctrl->minimum = vblank.min;
+                device->vblank_ctrl->maximum = vblank.max;
                 device->vblank_ctrl->default_value = vblank.def;
-                device->vblank_ctrl->val           = vblank.def;
-                device->vblank_ctrl->cur.val       = vblank.def;
+                device->vblank_ctrl->val = vblank.def;
+                device->vblank_ctrl->cur.val = vblank.def;
         }
 
+
+        if (device->pixel_rate_ctrl)
+        {
+                device->pixel_rate_ctrl->minimum = pixel_rate.min;
+                device->pixel_rate_ctrl->maximum = pixel_rate.max;
+                device->pixel_rate_ctrl->default_value = pixel_rate.def;
+                if (device->pixel_rate_ctrl->p_cur.p_s64)
+                        *device->pixel_rate_ctrl->p_cur.p_s64 = pixel_rate.def;
+        }
 }
 
 static void vc_update_blacklevel_ctrl(struct vc_device *device, struct vc_cam *cam)
@@ -1185,10 +1219,11 @@ static void vc_update_blacklevel_ctrl(struct vc_device *device, struct vc_cam *c
          * cam->state.blacklevel is the relative value (0..100000) computed by
          * vc_core from the mode's blacklevel.def/max. */
         ctrl_blacklevel.def = cam->state.blacklevel;
-        if (device->blacklevel_ctrl) {
+        if (device->blacklevel_ctrl)
+        {
                 device->blacklevel_ctrl->default_value = cam->state.blacklevel;
-                device->blacklevel_ctrl->val           = cam->state.blacklevel;
-                device->blacklevel_ctrl->cur.val       = cam->state.blacklevel;
+                device->blacklevel_ctrl->val = cam->state.blacklevel;
+                device->blacklevel_ctrl->cur.val = cam->state.blacklevel;
         }
 }
 
@@ -1196,11 +1231,11 @@ static void update_frame_rate_ctrl(struct vc_cam *cam, struct vc_device *device)
 {
         struct v4l2_ctrl *ctrl = v4l2_ctrl_find(&device->ctrl_handler, V4L2_CID_VC_FRAME_RATE);
         if (ctrl)
-        {              
+        {
                 ctrl->maximum = cam->ctrl.framerate.max;
                 ctrl->minimum = cam->ctrl.framerate.min;
                 ctrl->default_value = cam->ctrl.framerate.def;
-                ctrl->val = cam->state.framerate;                
+                ctrl->val = cam->state.framerate;
         }
 }
 int vc_sd_update_fmt(struct vc_device *device)
@@ -1208,14 +1243,14 @@ int vc_sd_update_fmt(struct vc_device *device)
         __u8 h_scale, v_scale;
         vc_get_binning_scale(&device->cam, &h_scale, &v_scale);
         struct v4l2_subdev_format fmt = {
-                .which = V4L2_SUBDEV_FORMAT_ACTIVE,
-                .format = {
-                        .code = device->cam.state.format_code,
-                        .width = device->cam.ctrl.frame.width / h_scale,
-                        .height = device->cam.ctrl.frame.height / v_scale,
-                        .field = V4L2_FIELD_NONE,
-                        .colorspace = V4L2_COLORSPACE_SRGB,
-                },
+            .which = V4L2_SUBDEV_FORMAT_ACTIVE,
+            .format = {
+                .code = device->cam.state.format_code,
+                .width = device->cam.ctrl.frame.width / h_scale,
+                .height = device->cam.ctrl.frame.height / v_scale,
+                .field = V4L2_FIELD_NONE,
+                .colorspace = V4L2_COLORSPACE_SRGB,
+            },
         };
 
         return v4l2_subdev_call(&device->sd, pad, set_fmt, NULL, &fmt);
@@ -1243,21 +1278,18 @@ static int vc_sd_init(struct vc_device *device)
         vc_update_blacklevel_ctrl(device, &device->cam);
         struct v4l2_ctrl *ctrl;
 
-
-        if(device->libcamera_enabled)
+        if (device->libcamera_enabled)
         {
                 device->cam.ctrl.exposure.min = 1;
                 device->cam.ctrl.exposure.max = 1000000;
                 device->cam.ctrl.exposure.def = 10;
         }
-     
-
 
         // Add controls
-        ret |= vc_ctrl_init_ctrl(device, &device->ctrl_handler, V4L2_CID_EXPOSURE, &device->cam.ctrl.exposure, 0);
-        ret |= vc_ctrl_init_ctrl_special(device, &device->ctrl_handler, V4L2_CID_ANALOGUE_GAIN, 
-                0, device->cam.ctrl.again.max_mdB + device->cam.ctrl.dgain.max_mdB, 0);
-                
+        ret |= vc_ctrl_init_ctrl(device, &device->ctrl_handler, V4L2_CID_EXPOSURE, &device->cam.ctrl.exposure, 0, NULL);
+        ret |= vc_ctrl_init_ctrl_special(device, &device->ctrl_handler, V4L2_CID_ANALOGUE_GAIN,
+                                         0, device->cam.ctrl.again.max_mdB + device->cam.ctrl.dgain.max_mdB, 0);
+
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_blacklevel, &device->blacklevel_ctrl);
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_orientation, &ctrl);
 
@@ -1270,7 +1302,7 @@ static int vc_sd_init(struct vc_device *device)
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_live_roi, &ctrl);
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_name, &ctrl);
 
-        ret |= vc_ctrl_init_ctrl(device, &device->ctrl_handler, V4L2_CID_PIXEL_RATE, &pixel_rate, 0);
+        ret |= vc_ctrl_init_ctrl(device, &device->ctrl_handler, V4L2_CID_PIXEL_RATE, &pixel_rate, 0, &device->pixel_rate_ctrl);
         ret |= vc_ctrl_init_ctrl_lfreq(device, &device->ctrl_handler, V4L2_CID_LINK_FREQ, &linkfreq);
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_hblank, &device->hblank_ctrl);
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_vblank, &device->vblank_ctrl);
@@ -1286,7 +1318,6 @@ static int vc_sd_init(struct vc_device *device)
         return 0;
 }
 
-
 static int vc_link_setup(struct media_entity *entity, const struct media_pad *local, const struct media_pad *remote,
                          __u32 flags)
 {
@@ -1299,40 +1330,41 @@ static const struct media_entity_operations vc_sd_media_ops = {
 
 static int vc_probe(struct i2c_client *client)
 {
-    struct device *dev = &client->dev;
-    struct vc_device *device;
-    struct vc_cam *cam;
-    int ret;
+        struct device *dev = &client->dev;
+        struct vc_device *device;
+        struct vc_cam *cam;
+        int ret;
 
-    vc_notice(dev, "%s(): Probing UNIVERSAL VC MIPI Driver (v%s)\n", __func__, VERSION);
+        vc_notice(dev, "%s(): Probing UNIVERSAL VC MIPI Driver (v%s)\n", __func__, VERSION);
 
-    device = devm_kzalloc(dev, sizeof(*device), GFP_KERNEL);
-    if (!device)
-        return -ENOMEM;
+        device = devm_kzalloc(dev, sizeof(*device), GFP_KERNEL);
+        if (!device)
+                return -ENOMEM;
 
-    cam = &device->cam;
-    cam->ctrl.client_sen = client;
+        cam = &device->cam;
+        cam->ctrl.client_sen = client;
 
-    mutex_init(&device->mutex);
+        mutex_init(&device->mutex);
 
-    vc_set_power(device, 1);
+        vc_set_power(device, 1);
 
-    ret = vc_core_init(cam, client);
-    if (ret)
-        goto error_release_core;
+        ret = vc_core_init(cam, client);
+        if (ret)
+                goto error_release_core;
 
-    ret = vc_check_hwcfg(cam, dev, device);
+        ret = vc_check_hwcfg(cam, dev, device);
 
-    if (ret)
-        goto error_release_core;
+        if (ret)
+                goto error_release_core;
 
-    cam->force_color_mode = device->force_color_mode;
-    if (cam->force_color_mode) {
-        // vc_core_init already ran vc_core_update_mbus_codes with the real
-        // sensor color flag. Rebuild now with the forced value.
-        memset(cam->ctrl.mbus_codes, 0, sizeof(cam->ctrl.mbus_codes));
-        vc_core_update_mbus_codes(cam);
-    }
+        cam->force_color_mode = device->force_color_mode;
+        if (cam->force_color_mode)
+        {
+                // vc_core_init already ran vc_core_update_mbus_codes with the real
+                // sensor color flag. Rebuild now with the forced value.
+                memset(cam->ctrl.mbus_codes, 0, sizeof(cam->ctrl.mbus_codes));
+                vc_core_update_mbus_codes(cam);
+        }
 
         vc_init_supported_mbus_codes(device);
         /* Defer module mode selection to stream start so sensor initialization
@@ -1340,81 +1372,77 @@ static int vc_probe(struct i2c_client *client)
          * dictate module mode at probe time in older drivers; on newer platforms
          * we initialize the module when streaming starts to pick the correct
          * mode based on runtime endpoint/format information. */
-    ret = vc_sd_init(device);
-    if (ret)
-        goto error_handler_free;
+        ret = vc_sd_init(device);
+        if (ret)
+                goto error_handler_free;
 
-    device->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
-    device->pad.flags = MEDIA_PAD_FL_SOURCE;
-    device->sd.entity.ops = &vc_sd_media_ops;
-    device->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
-    ret = media_entity_pads_init(&device->sd.entity, 1, &device->pad);
-    if (ret)
-        goto error_handler_free;
+        device->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
+        device->pad.flags = MEDIA_PAD_FL_SOURCE;
+        device->sd.entity.ops = &vc_sd_media_ops;
+        device->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
+        ret = media_entity_pads_init(&device->sd.entity, 1, &device->pad);
+        if (ret)
+                goto error_handler_free;
 
-    ret = v4l2_subdev_init_finalize(&device->sd);
-    if (ret)
-        goto error_media_entity;
+        ret = v4l2_subdev_init_finalize(&device->sd);
+        if (ret)
+                goto error_media_entity;
 
-     ret = v4l2_async_register_subdev_sensor(&device->sd);
-     if (ret)
-         goto error_subdev_cleanup;
+        ret = v4l2_async_register_subdev_sensor(&device->sd);
+        if (ret)
+                goto error_subdev_cleanup;
 
-     /* Enable runtime PM and take one usage reference */
-     pm_runtime_enable(dev);
-     vc_notice(dev, "%s(): Runtime PM enabled\n", __func__);
-     ret = pm_runtime_get_sync(dev);
-     if (ret < 0) {
-             vc_err(dev, "%s(): pm_runtime_get_sync failed: %d\n", __func__, ret);
-             goto error_pm_disable;
-     }
-     vc_notice(dev, "%s(): Probe successful\n", __func__);
-     return 0;
+        /* Enable runtime PM and take one usage reference */
+        pm_runtime_enable(dev);
+        vc_notice(dev, "%s(): Runtime PM enabled\n", __func__);
+        ret = pm_runtime_get_sync(dev);
+        if (ret < 0)
+        {
+                vc_err(dev, "%s(): pm_runtime_get_sync failed: %d\n", __func__, ret);
+                goto error_pm_disable;
+        }
+        vc_notice(dev, "%s(): Probe successful\n", __func__);
+        return 0;
 
- error_subdev_cleanup:
-     v4l2_subdev_cleanup(&device->sd);
- error_media_entity:
-     media_entity_cleanup(&device->sd.entity);
- error_handler_free:
-     v4l2_ctrl_handler_free(&device->ctrl_handler);
-     mutex_destroy(&device->mutex);
- error_release_core:
-     /* pm_runtime_enable() was never called on this path - only release the
-      * module I2C client (0x10) that vc_core_init() may have registered.
-      * Without this, a failed probe (e.g. unsupported lane count) leaks that
-      * client and every subsequent probe fails with "Unable to get module
-      * I2C client for address 0x10" until reboot. */
-     vc_set_power(device, 0);
-     vc_core_release(cam);
-     return ret;
- error_pm_disable:
-     pm_runtime_disable(dev);
-     pm_runtime_set_suspended(dev);
-     vc_set_power(device, 0);
-     vc_core_release(cam);
-     return ret;
- }
- 
- static void vc_remove(struct i2c_client *client)
- {
-     struct v4l2_subdev *sd = i2c_get_clientdata(client);
-     struct vc_device *device = to_vc_device(sd);
- 
-     v4l2_async_unregister_subdev(&device->sd);
-     v4l2_subdev_cleanup(&device->sd);
-     media_entity_cleanup(&device->sd.entity);
-     v4l2_ctrl_handler_free(&device->ctrl_handler);
-     mutex_destroy(&device->mutex);
- 
-     /* Release probe reference before disabling runtime PM */
-     pm_runtime_put_sync(&client->dev);
-     pm_runtime_disable(&client->dev);
-     pm_runtime_set_suspended(&client->dev);
-     vc_set_power(device, 0);
-     vc_core_release(&device->cam);
- 
-     return;
- }
+error_subdev_cleanup:
+        v4l2_subdev_cleanup(&device->sd);
+error_media_entity:
+        media_entity_cleanup(&device->sd.entity);
+error_handler_free:
+        v4l2_ctrl_handler_free(&device->ctrl_handler);
+        mutex_destroy(&device->mutex);
+error_release_core:
+        vc_set_power(device, 0);
+        vc_core_release(cam);
+        return ret;
+error_pm_disable:
+        pm_runtime_disable(dev);
+        pm_runtime_set_suspended(dev);
+        vc_set_power(device, 0);
+        vc_core_release(cam);
+        return ret;
+}
+
+static void vc_remove(struct i2c_client *client)
+{
+        struct v4l2_subdev *sd = i2c_get_clientdata(client);
+        struct vc_device *device = to_vc_device(sd);
+
+        v4l2_async_unregister_subdev(&device->sd);
+        v4l2_subdev_cleanup(&device->sd);
+        media_entity_cleanup(&device->sd.entity);
+        v4l2_ctrl_handler_free(&device->ctrl_handler);
+        mutex_destroy(&device->mutex);
+
+        /* Release probe reference before disabling runtime PM */
+        pm_runtime_put_sync(&client->dev);
+        pm_runtime_disable(&client->dev);
+        pm_runtime_set_suspended(&client->dev);
+        vc_set_power(device, 0);
+        vc_core_release(&device->cam);
+
+        return;
+}
 
 static const struct dev_pm_ops vc_pm_ops = {
     SET_SYSTEM_SLEEP_PM_OPS(vc_suspend, vc_resume)};
