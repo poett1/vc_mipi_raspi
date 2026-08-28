@@ -201,33 +201,32 @@ get_stored_config_for_dev() {
 }
 # Find all media devices and check for video0
 # Extract the hardware information from /proc/cpuinfo
-hardware_info=$(grep -m 1 'Hardware' /proc/cpuinfo | awk '{print $3}')
 revision_info=$(grep -m 1 'Revision' /proc/cpuinfo | awk '{print $3}')
 model_info=$(grep -m 1 'Model' /proc/cpuinfo | awk -F ': ' '{print $2}')
 
 # Convert the revision code to binary and extract the PPPP part (bits 23 to 20)
 revision_bin=$(printf "%032b\n" $((16#$revision_info)))
 pppp=$(( ($revision_bin >> 12) & 0xf ))
-echo "Revision binary: $revision_bin"
 # Convert the binary PPPP part back to hexadecimal
 pppp_hex=$(echo "obase=16; ibase=2; $pppp" | bc)
 ttt_hex=$(printf "%X\n" $(( ($revision_bin >> 4) & 0xFF )))
 
-# Display the hardware information
-echo "Hardware: $hardware_info"
-echo "Revision: $revision_info"
-echo "Model: $model_info"
-echo "PPPP: $pppp_hex"
-echo "TTTTTTTT: $ttt_hex"
-
-# Determine the Raspberry Pi model based on the revision code
 case $pppp_hex in
-0) echo "BCM2835";;
-1) echo "BCM2836";;
-2) echo "BCM2837";;
-3) echo "BCM2711";;
-4) echo "BCM2712";;
+0) soc="BCM2835";;
+1) soc="BCM2836";;
+2) soc="BCM2837";;
+3) soc="BCM2711";;
+4) soc="BCM2712";;
+*) soc="Unknown";;
 esac
+
+# Display the hardware information
+printf -- "----- Hardware Information -----\n"
+printf "%-10s %s\n" "Revision:" "$revision_info"
+printf "%-10s %s\n" "Model:" "$model_info"
+printf "%-10s %s\n" "SoC:" "$soc"
+printf -- "---------------------------------\n"
+
 configure_device_tree() {
     local change=false
         # Use whiptail to create a menu for selecting the camera
@@ -1043,7 +1042,7 @@ for mediadev in /dev/media*; do
         subdev=$(media-ctl -d "$mediadev" -p | grep "vc_mipi_camera" -A  2  | grep "device node name" | awk -F ' ' '{ print $4 }')
         dev=$(media-ctl -d "$mediadev" -p | grep "$frontend_device" -A  2  | grep "device node name" | awk -F ' ' '{ print $4 }')
         bus=$(media-ctl -d "$mediadev" -p | grep "vc_mipi_camera" | sed -n 's/.*vc_mipi_camera \([0-9][0-9]*\)-[0-9a-fA-F]\+.*/\1/p')
-        sensor=$(v4l2-ctl --device=$subdev --get-ctrl="sensor_name" | awk -F' ' '{print $NF}' | tr -d "'")
+        sensor=$(v4l2-ctl --device=$subdev --get-ctrl="sensor_info" | awk -F' ' '{print $NF}' | tr -d "'")
 
         dev_subdev_map["$dev"]="$subdev"
 

@@ -11,7 +11,7 @@
 #include <media/v4l2-fwnode.h>
 #include <media/v4l2-event.h>
 
-#define VERSION_CAMERA "0.6.13"
+#define VERSION_CAMERA "0.7.0"
 
 int debug = 3;
 // --- Prototypes --------------------------------------------------------------
@@ -46,7 +46,7 @@ enum private_cids
         V4L2_CID_VC_SINGLE_TRIGGER,
         V4L2_CID_VC_BINNING_MODE,
         V4L2_CID_LIVE_ROI,
-        V4L2_CID_VC_NAME,
+        V4L2_CID_VC_INFO,
 };
 
 enum pad_types
@@ -569,9 +569,10 @@ static int vc_ctrl_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 {
         struct vc_device *device = container_of(ctrl->handler, struct vc_device, ctrl_handler);
         struct vc_cam *cam = &device->cam;
-        if (ctrl->id == V4L2_CID_VC_NAME)
+        if (ctrl->id == V4L2_CID_VC_INFO)
         {
-                strscpy(ctrl->p_new.p_char, device->cam.desc.sen_type, ctrl->maximum + 1);
+                snprintf(ctrl->p_new.p_char, ctrl->maximum + 1, "%.10s REV.%04u",
+                         device->cam.desc.sen_type, device->cam.desc.mod_rev);
                 return 0;
         }
         if (ctrl->id == V4L2_CID_LIVE_ROI)
@@ -969,12 +970,12 @@ static struct v4l2_ctrl_config ctrl_blacklevel = {
 
 static const struct v4l2_ctrl_config ctrl_name = {
     .ops = &vc_ctrl_ops,
-    .id = V4L2_CID_VC_NAME, // See https://github.com/VC-MIPI-modules/vc_mipi_nvidia/blob/master/doc/BLACK_LEVEL.md
-    .name = "Sensor name",
+    .id = V4L2_CID_VC_INFO,
+    .name = "Sensor info",
     .type = V4L2_CTRL_TYPE_STRING,
     .flags = V4L2_CTRL_FLAG_READ_ONLY | V4L2_CTRL_FLAG_VOLATILE,
     .min = 0,
-    .max = 10,
+    .max = 19,
     .step = 1,
     .def = 0,
 };
