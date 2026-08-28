@@ -7,6 +7,12 @@ The IO mode remains set until it is deactivated with
 ```shell
 v4l2-ctl -d <SUBDEV> -c io_mode=0
 ```
+`io_mode` is a V4L2 menu control. Modes (1)-(5) (the flash/trigger-polarity modes) only appear in the menu if the connected sensor model supports the IO signal at all (see the flash signal support table below); on sensors that don't, only `Off (0)` is listed by
+```shell
+v4l2-ctl -d <SUBDEV> -L    # or --list-ctrls-menus
+```
+Setting an unsupported mode number is still rejected with `-EINVAL`, whether or not it appears in the menu.
+
 Following you will find timing diagrams to illustrate the specific behavior of each mode.
 
 In all modes you can activate a trigger mode as described in [Trigger Modes](TRIGGER_MODE.md). 

@@ -7,6 +7,12 @@ The trigger mode remains set until it is deactivated with
 ``` shell
 v4l2-ctl -d <SUBDEV> -c trigger_mode=0
 ```
+`trigger_mode` is a V4L2 menu control, so only the trigger modes the connected sensor model actually supports (see the table below) are listed by
+``` shell
+v4l2-ctl -d <SUBDEV> -L    # or --list-ctrls-menus
+```
+Setting an unsupported mode number is still rejected with `-EINVAL`, whether or not it appears in the menu.
+
 Following you will find timing diagrams to illustrate the specific behavior of each mode.
 ## External and pulse width trigger mode (1 or 2)
 ![External trigger mode](../docs/plantuml/tm_external.svg)
