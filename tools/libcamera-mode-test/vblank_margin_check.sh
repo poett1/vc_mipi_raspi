@@ -4,7 +4,8 @@
 # The sensor test pattern cannot answer this (it bypasses the pixel array). The oracle is a
 # static scene at fixed exposure and gain: a too-small VBLANK truncates the frame (zero rows at
 # the bottom) and drops the whole-frame level. This captures a slow reference frame and one
-# frame per requested margin, then compares mean level and counts zero rows.
+# frame per requested margin, then counts zero rows (the truncation signal; the level columns
+# are informational, they pick up mains-flicker banding at short exposures).
 #
 #   usage: vblank_margin_check.sh <bitdepth> <exposure_us> <margin_lines>...
 #   e.g.   vblank_margin_check.sh 8 2000 220 235 258
@@ -32,7 +33,7 @@ case $BD in
 esac
 
 run() { # name frame_duration_us
-  "$BIN" "$BD" 60 "$2" "$OUT/$1.pgm" "$EXP" 2>&1 | grep -E 'frames|ERROR' | sed "s/^/  $1: /"
+  "$BIN" "$BD" 60 "$2" "$OUT/$1.pgm" "$EXP" 2>&1 | grep -E 'frames|ERROR' | grep -v DeviceEnumerator | sed "s/^/  $1: /"
 }
 
 echo "reference: 30 fps"
@@ -51,10 +52,17 @@ def load(n):
     hdr = b"P5\n2048 1536\n65535\n"
     return np.frombuffer(d[len(hdr):], dtype=">u2").reshape(1536, 2048).astype(float)
 r = load(ref); rmean = r.mean()
-print(f"{'frame':>8} {'mean':>8} {'vs ref':>8} {'zero rows':>10} {'first zero row':>15}")
-print(f"{ref:>8} {rmean:8.0f} {'1.000':>8} {(r.mean(axis=1)==0).sum():>10} {'-':>15}")
+def tail(a):  # last 32 rows relative to a band well above them; truncation attenuates or zeroes the tail
+    return a[1504:1536].mean() / a[1408:1472].mean()
+rtail = tail(r)
+print(f"{'frame':>8} {'mean':>8} {'vs ref':>8} {'tail32':>7} {'zero rows':>10} {'first zero row':>15}")
+print(f"{ref:>8} {rmean:8.0f} {'1.000':>8} {'1.000':>7} {(r.mean(axis=1)==0).sum():>10} {'-':>15}")
 for m in margins:
     a = load(f"m{m}"); rows = a.mean(axis=1); z = np.where(rows == 0)[0]
-    verdict = "OK" if len(z) == 0 and abs(a.mean()/rmean - 1) < 0.05 else "TRUNCATED/DARK"
-    print(f"{'m'+m:>8} {a.mean():8.0f} {a.mean()/rmean:8.3f} {len(z):>10} {z[0] if len(z) else '-':>15}  {verdict}")
+    t = tail(a) / rtail
+    # Truncation shows as zero rows or as an attenuated tail (a step at a fixed row, e.g. 76 %
+    # from row 1504 on). Whole-frame level is informational: short exposures under mains
+    # lighting carry a few percent of flicker banding.
+    verdict = "OK" if len(z) == 0 and abs(t - 1) < 0.03 else "TRUNCATED"
+    print(f"{'m'+m:>8} {a.mean():8.0f} {a.mean()/rmean:8.3f} {t:7.3f} {len(z):>10} {z[0] if len(z) else '-':>15}  {verdict}")
 PY

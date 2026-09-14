@@ -240,7 +240,10 @@ static int vc_sd_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *control)
                         u32 active_width = cam->state.frame.width > 0
                                                ? cam->state.frame.width
                                                : cam->ctrl.frame.width;
-                        u32 new_hmax = (u32)div_u64(
+                        /* Round up: libcamera pads HBLANK to meet the ISP's pixel-rate
+                         * limit, and rounding HMAX down handed it a line 0.2 % shorter
+                         * than requested (380.2 Mpix/s against a 380 limit). */
+                        u32 new_hmax = (u32)DIV_ROUND_UP_ULL(
                             (u64)(active_width + control->value) * cam->ctrl.clk_pixel,
                             pixel_rate.max);
                         vc_core_set_hmax_overwrite(cam, new_hmax);
