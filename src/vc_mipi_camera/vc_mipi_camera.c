@@ -420,6 +420,12 @@ static int vc_sd_set_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_state *state
 
         mutex_lock(&device->mutex);
 
+        if (mf->code != cam->state.format_code)
+        {
+                /* A padded HMAX belongs to the mode it was computed for;
+                 * userspace re-applies HBLANK for the new mode. */
+                vc_core_set_hmax_overwrite(cam, 0);
+        }
         vc_core_set_format(cam, mf->code);
         vc_core_set_frame(cam, 0, 0, mf->width, mf->height);
         /* Publish the new mode's pixel rate and blanking ranges right away.
@@ -1024,6 +1030,13 @@ static struct v4l2_ctrl_config ctrl_vblank = {
 
 static vc_mode *vc_get_mode(struct vc_cam *cam)
 {
+        /* Prefer the mode matching the current lanes/format/binning: state.mode
+         * (ROM index) is only assigned when streaming starts, so going through
+         * it from set_fmt returned the previous mode. */
+        vc_mode *cur_mode = vc_core_get_current_mode(cam);
+        if (cur_mode)
+                return cur_mode;
+
         /* Guard against the sentinel value 0xff set by vc_core_state_init
          * before a mode is formally selected.  Use ROM mode 0 as the
          * reference when state.mode is out of range. */
