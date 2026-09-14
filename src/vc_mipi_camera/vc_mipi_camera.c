@@ -78,7 +78,7 @@ struct vc_device
         struct v4l2_ctrl *blacklevel_ctrl;
         struct v4l2_ctrl *pixel_rate_ctrl;
 };
-static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam);
+static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bool ctrl_locked);
 static void vc_update_blacklevel_ctrl(struct vc_device *device, struct vc_cam *cam);
 
 static inline struct vc_device *to_vc_device(struct v4l2_subdev *sd)
@@ -298,7 +298,7 @@ static int vc_sd_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *control)
         case V4L2_CID_VC_FRAME_RATE:
 
                 ret = vc_core_set_framerate(cam, control->value);
-                vc_update_clk_rates(device, cam);
+                vc_update_clk_rates(device, cam, true); /* s_ctrl: handler lock held */
                 return ret;
 
         case V4L2_CID_VC_SINGLE_TRIGGER:
@@ -347,6 +347,18 @@ static int vc_sd_s_stream(struct v4l2_subdev *sd, int enable)
                         goto err_unlock;
                 }
 
+                /* libcamera owns the frame length through V4L2_CID_VBLANK. If it has
+                 * not written the control since probe (e.g. it asked for the mode
+                 * default, which the framework de-duplicates against the initial
+                 * value), mirror the control into the driver state so the sensor
+                 * runs what userspace believes it runs. */
+                if (device->libcamera_enabled && device->vblank_ctrl && cam->state.vmax_overwrite <= 0)
+                {
+                        u32 h = cam->state.frame.height > 0 ? cam->state.frame.height
+                                                             : cam->ctrl.frame.height;
+                        vc_core_set_vmax_overwrite(cam, h + v4l2_ctrl_g_ctrl(device->vblank_ctrl));
+                }
+
                 ret = vc_sen_start_stream(cam);
                 if (ret < 0)
                 {
@@ -355,7 +367,7 @@ static int vc_sd_s_stream(struct v4l2_subdev *sd, int enable)
                 }
 
 
-                vc_update_clk_rates(device, cam);
+                vc_update_clk_rates(device, cam, false);
                 update_frame_rate_ctrl(cam, device);
         }
         else
@@ -410,6 +422,10 @@ static int vc_sd_set_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_state *state
 
         vc_core_set_format(cam, mf->code);
         vc_core_set_frame(cam, 0, 0, mf->width, mf->height);
+        /* Publish the new mode's pixel rate and blanking ranges right away.
+         * libcamera re-reads the control info immediately after set_fmt; doing
+         * this only in s_stream left it with the previous mode's line time. */
+        vc_update_clk_rates(device, cam, false);
         mf->field = V4L2_FIELD_NONE;
         mf->colorspace = V4L2_COLORSPACE_SRGB;
 
@@ -1041,7 +1057,7 @@ static vc_mode *vc_get_mode(struct vc_cam *cam)
         return mode;
 }
 
-static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam)
+static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bool ctrl_locked)
 {
         vc_mode *mode = vc_get_mode(cam);
         if (!mode)
@@ -1219,45 +1235,66 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam)
         ctrl_vblank.max = vblank.max;
         ctrl_vblank.def = vblank.def;
 
-        /* Reflect updated hblank into the live V4L2 control so seninf's
-         * get_buffered_pixel_rate() reads the correct value instantly.
-         * Use the cached pointer — never call v4l2_ctrl_find() here because
-         * this function runs inside s_ctrl which already holds
-         * ctrl_handler->lock, and v4l2_ctrl_find() would try to acquire
-         * the same lock → deadlock. */
+        /* Update the live controls. Ranges go through __v4l2_ctrl_modify_range()
+         * so the framework's idea of the current value stays what userspace last
+         * wrote: poking cur.val to the default made a later write of that same
+         * value (libcamera asking for the mode's maximum frame rate) look like a
+         * no-op, and the sensor silently kept the start-up frame length.
+         * In raw V4L2 mode (no libcamera) the blanking controls are informational
+         * and keep mirroring the computed values, as before.
+         * Callers inside s_ctrl already hold the handler lock (ctrl_locked). */
         if (device->hblank_ctrl)
         {
-                device->hblank_ctrl->minimum = hblank.min;
-                device->hblank_ctrl->maximum = hblank.max;
-                device->hblank_ctrl->default_value = hblank.def;
-                device->hblank_ctrl->val = hblank.def;
-                device->hblank_ctrl->cur.val = hblank.def;
-                /* Also propagate the read-only flag so a writable hmax range
-                 * (MODE_HMAX) is correctly exposed after the first set_fmt. */
-                if (mode->hmax.min == mode->hmax.max)
-                        device->hblank_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+                struct v4l2_ctrl *c = device->hblank_ctrl;
+                bool fixed = (mode->hmax.min == mode->hmax.max);
+
+                if (!ctrl_locked)
+                        v4l2_ctrl_lock(c);
+                __v4l2_ctrl_modify_range(c, hblank.min, hblank.max, 1, hblank.def);
+                /* Propagate the read-only flag so a writable hmax range
+                 * (MODE_HMAX) is correctly exposed after set_fmt. */
+                if (fixed)
+                        c->flags |= V4L2_CTRL_FLAG_READ_ONLY;
                 else
-                        device->hblank_ctrl->flags &= ~V4L2_CTRL_FLAG_READ_ONLY;
+                        c->flags &= ~V4L2_CTRL_FLAG_READ_ONLY;
+                if (fixed || !device->libcamera_enabled)
+                {
+                        c->val = hblank.def;
+                        c->cur.val = hblank.def;
+                }
+                if (!ctrl_locked)
+                        v4l2_ctrl_unlock(c);
         }
 
-        /* Update live V4L2_CID_VBLANK control with the actual vblank. */
         if (device->vblank_ctrl)
         {
-                device->vblank_ctrl->minimum = vblank.min;
-                device->vblank_ctrl->maximum = vblank.max;
-                device->vblank_ctrl->default_value = vblank.def;
-                device->vblank_ctrl->val = vblank.def;
-                device->vblank_ctrl->cur.val = vblank.def;
-        }
+                struct v4l2_ctrl *c = device->vblank_ctrl;
 
+                if (!ctrl_locked)
+                        v4l2_ctrl_lock(c);
+                __v4l2_ctrl_modify_range(c, vblank.min, vblank.max, 1, vblank.def);
+                if (!device->libcamera_enabled)
+                {
+                        c->val = vblank.def;
+                        c->cur.val = vblank.def;
+                }
+                if (!ctrl_locked)
+                        v4l2_ctrl_unlock(c);
+        }
 
         if (device->pixel_rate_ctrl)
         {
-                device->pixel_rate_ctrl->minimum = pixel_rate.min;
-                device->pixel_rate_ctrl->maximum = pixel_rate.max;
-                device->pixel_rate_ctrl->default_value = pixel_rate.def;
-                if (device->pixel_rate_ctrl->p_cur.p_s64)
-                        *device->pixel_rate_ctrl->p_cur.p_s64 = pixel_rate.def;
+                struct v4l2_ctrl *c = device->pixel_rate_ctrl;
+
+                if (!ctrl_locked)
+                        v4l2_ctrl_lock(c);
+                c->minimum = pixel_rate.min;
+                c->maximum = pixel_rate.max;
+                c->default_value = pixel_rate.def;
+                if (c->p_cur.p_s64)
+                        *c->p_cur.p_s64 = pixel_rate.def;
+                if (!ctrl_locked)
+                        v4l2_ctrl_unlock(c);
         }
 }
 
@@ -1322,7 +1359,7 @@ static int vc_sd_init(struct vc_device *device)
         // Hook the control handler into the driver
         device->sd.ctrl_handler = &device->ctrl_handler;
 
-        vc_update_clk_rates(device, &device->cam);
+        vc_update_clk_rates(device, &device->cam, false);
         vc_update_blacklevel_ctrl(device, &device->cam);
         struct v4l2_ctrl *ctrl;
 
