@@ -77,6 +77,15 @@ struct vc_device
         struct v4l2_ctrl *vblank_ctrl;
         struct v4l2_ctrl *blacklevel_ctrl;
         struct v4l2_ctrl *pixel_rate_ctrl;
+        /* Per-instance control ranges and the configs they are created from. These used
+         * to be file-scope statics, so with two modules (cam0 and cam1) the second probe
+         * overwrote the first camera's advertised HBLANK/VBLANK/pixel-rate bounds. */
+        struct vc_control hblank;
+        struct vc_control vblank;
+        struct vc_control pixel_rate;
+        struct vc_control64 linkfreq;
+        struct v4l2_ctrl_config hblank_cfg;
+        struct v4l2_ctrl_config vblank_cfg;
 };
 static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bool ctrl_locked);
 static void vc_update_blacklevel_ctrl(struct vc_device *device, struct vc_cam *cam);
@@ -92,19 +101,10 @@ static inline struct vc_cam *to_vc_cam(struct v4l2_subdev *sd)
         return &device->cam;
 }
 
-static struct vc_control hblank;
-static struct vc_control vblank;
-static struct vc_control pixel_rate;
 // Unsupported mbus codes for libcamera
 static int unsupported_mbus_codes[1] =
     {
         MEDIA_BUS_FMT_Y14_1X14};
-
-static struct vc_control64 linkfreq = {
-    .min = 0,
-    .max = 0,
-    .def = 0,
-};
 
 static void update_frame_rate_ctrl(struct vc_cam *cam, struct vc_device *device);
 int vc_sd_update_fmt(struct vc_device *device);
@@ -235,7 +235,7 @@ static int vc_sd_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *control)
         {
 
         case V4L2_CID_HBLANK:
-                if (cam->ctrl.clk_pixel > 0 && pixel_rate.max > 0)
+                if (cam->ctrl.clk_pixel > 0 && device->pixel_rate.max > 0)
                 {
                         u32 active_width = cam->state.frame.width > 0
                                                ? cam->state.frame.width
@@ -245,14 +245,22 @@ static int vc_sd_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *control)
                          * than requested (380.2 Mpix/s against a 380 limit). */
                         u32 new_hmax = (u32)DIV_ROUND_UP_ULL(
                             (u64)(active_width + control->value) * cam->ctrl.clk_pixel,
-                            pixel_rate.max);
+                            device->pixel_rate.max);
                         vc_core_set_hmax_overwrite(cam, new_hmax);
                 }
-                else
+                else if (mode && num_lanes > 0)
                 {
                         /* Align hblank to lane boundary (num_lanes is power of 2) */
                         u32 aligned_hblank = control->value & ~(num_lanes - 1);
                         vc_core_set_hmax_overwrite(cam, mode->hmax.def + aligned_hblank / num_lanes);
+                }
+                else
+                {
+                        /* No usable mode (vc_get_mode() found nothing and so
+                         * vc_update_clk_rates() never set a pixel rate): there is no HMAX
+                         * default to offset from. Refuse rather than dereference. */
+                        vc_err(dev, "%s(): no usable mode, cannot set HBLANK %d\n", __func__, control->value);
+                        return -EINVAL;
                 }
                 vc_notice(dev, "%s(): Set HBLANK: %d\n", __func__, control->value);
                 vc_sen_set_hmax(cam);
@@ -1005,8 +1013,9 @@ static const struct v4l2_ctrl_config ctrl_name = {
     .def = 0,
 };
 
-/* Non-const: min/max/def are updated by vc_update_clk_rates() before ctrl creation */
-static struct v4l2_ctrl_config ctrl_hblank = {
+/* Template only: copied into vc_device::hblank_cfg per instance, where vc_update_clk_rates()
+ * fills min/max/def before the control is created. */
+static const struct v4l2_ctrl_config ctrl_hblank = {
     .ops = &vc_ctrl_ops,
     .id = V4L2_CID_HBLANK,
     .name = "Horizontal Blanking",
@@ -1018,8 +1027,8 @@ static struct v4l2_ctrl_config ctrl_hblank = {
     .def = 0,
 };
 
-/* Non-const: min/max/def are updated by vc_update_clk_rates() before ctrl creation */
-static struct v4l2_ctrl_config ctrl_vblank = {
+/* Template only: copied into vc_device::vblank_cfg per instance (see ctrl_hblank). */
+static const struct v4l2_ctrl_config ctrl_vblank = {
     .ops = &vc_ctrl_ops,
     .id = V4L2_CID_VBLANK,
     .name = "Vertical Blanking",
@@ -1091,13 +1100,13 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bo
 
         /* CSI-2 DDR: serial bit rate per lane = data_rate_mbps.
          * Link frequency = serial bit rate / 2 (both edges of clock used). */
-        linkfreq.max = (u64)data_rate_mbps * 1000000ULL / 2;
-        linkfreq.def = linkfreq.max;
-        linkfreq.min = linkfreq.max;
+        device->linkfreq.max = (u64)data_rate_mbps * 1000000ULL / 2;
+        device->linkfreq.def = device->linkfreq.max;
+        device->linkfreq.min = device->linkfreq.max;
 
         /* Pixel rate = (data_rate_per_lane * num_lanes) / bits_per_pixel */
-        pixel_rate.max = (u32)((u64)data_rate_mbps * num_lanes / bit_depth * 1000000);
-        pixel_rate.def = pixel_rate.max;
+        device->pixel_rate.max = (u32)((u64)data_rate_mbps * num_lanes / bit_depth * 1000000);
+        device->pixel_rate.def = device->pixel_rate.max;
 
         /* Compute actual vblank at the current operating point so that
          * seninf's calc_buffered_pixel_rate() gets a correct frame-line
@@ -1124,15 +1133,15 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bo
                         u32 vmax_min_real = height + mode->vmax_row_margin;
                         if (mode->vmax_row_floor > vmax_min_real)
                                 vmax_min_real = mode->vmax_row_floor;
-                        vblank.min = vmax_min_real > height ? vmax_min_real - height : 0;
+                        device->vblank.min = vmax_min_real > height ? vmax_min_real - height : 0;
                 }
                 else
                 {
-                        vblank.min = mode->vmax.def > height
+                        device->vblank.min = mode->vmax.def > height
                                          ? mode->vmax.def - height
                                          : 0;
                 }
-                vblank.max = mode->vmax.max > height
+                device->vblank.max = mode->vmax.max > height
                                  ? mode->vmax.max - height
                                  : 0;
 
@@ -1158,11 +1167,11 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bo
                                 vmax_actual -= (cam->ctrl.frame.height - height);
                 }
 
-                vblank.def = vmax_actual > height
+                device->vblank.def = vmax_actual > height
                                  ? vmax_actual - height
-                                 : vblank.min;
-                if (vblank.def < vblank.min)
-                        vblank.def = vblank.min;
+                                 : device->vblank.min;
+                if (device->vblank.def < device->vblank.min)
+                        device->vblank.def = device->vblank.min;
 
                 /* seninf (MTK Genio) clamps calc_buffered_pixel_rate to an
                  * internal floor of ~408 MHz.  When (w+hb)*(h+vb)*fps < 408
@@ -1177,7 +1186,7 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bo
                  * floor = 408279424  (~408 MHz, observed in seninf logs)
                  * vb_min = ceil(floor / ((width+hblank) * fps_Hz)) - height
                  */
-                if (cam->state.framerate > 0 && hblank.min > 0)
+                if (cam->state.framerate > 0 && device->hblank.min > 0)
                 {
                         u32 fps_hz_x1000 = cam->state.framerate; /* milli-fps */
                         /* Use the active (crop) width — seninf computes its frame monitor
@@ -1188,13 +1197,13 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bo
                         u32 active_width = cam->state.frame.width > 0
                                                ? cam->state.frame.width
                                                : cam->ctrl.frame.width;
-                        u32 row_pixels = active_width + hblank.min;
+                        u32 row_pixels = active_width + device->hblank.min;
                         /* needed_total = ceil(408279424 * 1000 / (row_pixels * fps_hz_x1000)) */
                         u32 needed_total = (u32)div_u64(
                             408279424ULL * 1000 + (u64)row_pixels * fps_hz_x1000 - 1,
                             (u64)row_pixels * fps_hz_x1000);
-                        if (needed_total > height + vblank.def)
-                                vblank.def = needed_total - height;
+                        if (needed_total > height + device->vblank.def)
+                                device->vblank.def = needed_total - height;
                 }
         }
 
@@ -1215,41 +1224,41 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bo
                 u32 active_width = cam->state.frame.width > 0
                                        ? cam->state.frame.width
                                        : cam->ctrl.frame.width;
-                u32 hmax_min_out = (u32)div_u64((u64)mode->hmax.min * pixel_rate.max,
+                u32 hmax_min_out = (u32)div_u64((u64)mode->hmax.min * device->pixel_rate.max,
                                                 cam->ctrl.clk_pixel);
-                u32 hmax_max_out = (u32)div_u64((u64)mode->hmax.max * pixel_rate.max,
+                u32 hmax_max_out = (u32)div_u64((u64)mode->hmax.max * device->pixel_rate.max,
                                                 cam->ctrl.clk_pixel);
-                u32 hmax_def_out = (u32)div_u64((u64)mode->hmax.def * pixel_rate.max,
+                u32 hmax_def_out = (u32)div_u64((u64)mode->hmax.def * device->pixel_rate.max,
                                                 cam->ctrl.clk_pixel);
-                hblank.min = (hmax_min_out > active_width)
+                device->hblank.min = (hmax_min_out > active_width)
                                  ? hmax_min_out - active_width
                                  : 0;
-                hblank.max = (hmax_max_out > active_width)
+                device->hblank.max = (hmax_max_out > active_width)
                                  ? hmax_max_out - active_width
                                  : 0;
-                hblank.def = (hmax_def_out > active_width)
+                device->hblank.def = (hmax_def_out > active_width)
                                  ? hmax_def_out - active_width
                                  : 0;
         }
         else
         {
-                hblank.min = 0;
-                hblank.max = 0;
-                hblank.def = 0;
+                device->hblank.min = 0;
+                device->hblank.max = 0;
+                device->hblank.def = 0;
         }
-        /* Keep config structs in sync so ctrl_hblank/ctrl_vblank hold the correct
-         * values at init time (vc_update_clk_rates is called before ctrl creation).
+        /* Keep this instance's config copies in sync so the controls are created with
+         * the right ranges (vc_update_clk_rates runs before ctrl creation).
          * Mark hblank read-only when the sensor does not allow hmax manipulation. */
-        ctrl_hblank.min = hblank.min;
-        ctrl_hblank.max = hblank.max;
-        ctrl_hblank.def = hblank.def;
+        device->hblank_cfg.min = device->hblank.min;
+        device->hblank_cfg.max = device->hblank.max;
+        device->hblank_cfg.def = device->hblank.def;
         if (mode->hmax.min == mode->hmax.max)
-                ctrl_hblank.flags |= V4L2_CTRL_FLAG_READ_ONLY;
+                device->hblank_cfg.flags |= V4L2_CTRL_FLAG_READ_ONLY;
         else
-                ctrl_hblank.flags &= ~V4L2_CTRL_FLAG_READ_ONLY;
-        ctrl_vblank.min = vblank.min;
-        ctrl_vblank.max = vblank.max;
-        ctrl_vblank.def = vblank.def;
+                device->hblank_cfg.flags &= ~V4L2_CTRL_FLAG_READ_ONLY;
+        device->vblank_cfg.min = device->vblank.min;
+        device->vblank_cfg.max = device->vblank.max;
+        device->vblank_cfg.def = device->vblank.def;
 
         /* Update the live controls. Ranges go through __v4l2_ctrl_modify_range()
          * so the framework's idea of the current value stays what userspace last
@@ -1266,7 +1275,7 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bo
 
                 if (!ctrl_locked)
                         v4l2_ctrl_lock(c);
-                __v4l2_ctrl_modify_range(c, hblank.min, hblank.max, 1, hblank.def);
+                __v4l2_ctrl_modify_range(c, device->hblank.min, device->hblank.max, 1, device->hblank.def);
                 /* Propagate the read-only flag so a writable hmax range
                  * (MODE_HMAX) is correctly exposed after set_fmt. */
                 if (fixed)
@@ -1275,8 +1284,8 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bo
                         c->flags &= ~V4L2_CTRL_FLAG_READ_ONLY;
                 if (fixed || !device->libcamera_enabled)
                 {
-                        c->val = hblank.def;
-                        c->cur.val = hblank.def;
+                        c->val = device->hblank.def;
+                        c->cur.val = device->hblank.def;
                 }
                 if (!ctrl_locked)
                         v4l2_ctrl_unlock(c);
@@ -1288,11 +1297,11 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bo
 
                 if (!ctrl_locked)
                         v4l2_ctrl_lock(c);
-                __v4l2_ctrl_modify_range(c, vblank.min, vblank.max, 1, vblank.def);
+                __v4l2_ctrl_modify_range(c, device->vblank.min, device->vblank.max, 1, device->vblank.def);
                 if (!device->libcamera_enabled)
                 {
-                        c->val = vblank.def;
-                        c->cur.val = vblank.def;
+                        c->val = device->vblank.def;
+                        c->cur.val = device->vblank.def;
                 }
                 if (!ctrl_locked)
                         v4l2_ctrl_unlock(c);
@@ -1304,11 +1313,11 @@ static void vc_update_clk_rates(struct vc_device *device, struct vc_cam *cam, bo
 
                 if (!ctrl_locked)
                         v4l2_ctrl_lock(c);
-                c->minimum = pixel_rate.min;
-                c->maximum = pixel_rate.max;
-                c->default_value = pixel_rate.def;
+                c->minimum = device->pixel_rate.min;
+                c->maximum = device->pixel_rate.max;
+                c->default_value = device->pixel_rate.def;
                 if (c->p_cur.p_s64)
-                        *c->p_cur.p_s64 = pixel_rate.def;
+                        *c->p_cur.p_s64 = device->pixel_rate.def;
                 if (!ctrl_locked)
                         v4l2_ctrl_unlock(c);
         }
@@ -1375,6 +1384,8 @@ static int vc_sd_init(struct vc_device *device)
         // Hook the control handler into the driver
         device->sd.ctrl_handler = &device->ctrl_handler;
 
+        device->hblank_cfg = ctrl_hblank;
+        device->vblank_cfg = ctrl_vblank;
         vc_update_clk_rates(device, &device->cam, false);
         vc_update_blacklevel_ctrl(device, &device->cam);
         struct v4l2_ctrl *ctrl;
@@ -1408,10 +1419,10 @@ static int vc_sd_init(struct vc_device *device)
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_live_roi, &ctrl);
         ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_name, &ctrl);
 
-        ret |= vc_ctrl_init_ctrl(device, &device->ctrl_handler, V4L2_CID_PIXEL_RATE, &pixel_rate, 0, &device->pixel_rate_ctrl);
-        ret |= vc_ctrl_init_ctrl_lfreq(device, &device->ctrl_handler, V4L2_CID_LINK_FREQ, &linkfreq);
-        ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_hblank, &device->hblank_ctrl);
-        ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &ctrl_vblank, &device->vblank_ctrl);
+        ret |= vc_ctrl_init_ctrl(device, &device->ctrl_handler, V4L2_CID_PIXEL_RATE, &device->pixel_rate, 0, &device->pixel_rate_ctrl);
+        ret |= vc_ctrl_init_ctrl_lfreq(device, &device->ctrl_handler, V4L2_CID_LINK_FREQ, &device->linkfreq);
+        ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &device->hblank_cfg, &device->hblank_ctrl);
+        ret |= vc_ctrl_init_custom_ctrl(device, &device->ctrl_handler, &device->vblank_cfg, &device->vblank_ctrl);
         ret |= vc_ctrl_init_ctrl_lc(device, &device->ctrl_handler);
         
         if (ret)
